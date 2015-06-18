@@ -1,0 +1,7 @@
+{
+  "name": "node-hyperplane",
+  "version": "0.0.0",
+  "dependencies": {
+    "clay-request": "^0.4.2"
+  }
+}
