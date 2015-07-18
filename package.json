@@ -1,6 +1,6 @@
 {
   "name": "node-hyperplane",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "dependencies": {
     "clay-request": "^0.4.2",
     "rx-lite": "^2.5.2"
