@@ -28,9 +28,9 @@ module.exports = class Hyperplane
           method: 'POST'
           body: joinEvent
       ).then (user) =>
-        @cookieSubject.onNext _.defaults {
-          "#{AUTH_COOKIE}": user.accessToken
-        }, @cookieSubject.getValue()
+        cookies = {}
+        cookies[AUTH_COOKIE] = user.accessToken
+        @cookieSubject.onNext _.defaults cookies, @cookieSubject.getValue()
         return user
 
   getExperiments: =>
