@@ -1,6 +1,6 @@
 {
   "name": "node-hyperplane",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "dependencies": {
     "clay-request": "^0.4.2",
     "lodash": "^3.10.1",
