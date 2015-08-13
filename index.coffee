@@ -1,4 +1,5 @@
 Rx = require 'rx-lite'
+_ = require 'lodash'
 
 AUTH_COOKIE = 'hyperplaneToken'
 

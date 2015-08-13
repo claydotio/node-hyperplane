@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "dependencies": {
     "clay-request": "^0.4.2",
+    "lodash": "^3.10.1",
     "rx-lite": "^2.5.2"
   }
 }
