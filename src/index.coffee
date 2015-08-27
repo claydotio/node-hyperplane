@@ -4,6 +4,7 @@ _ = require 'lodash'
 AUTH_COOKIE = 'hyperplaneToken'
 
 module.exports = class Hyperplane
+  # TODO: add app
   constructor: ({@cookieSubject, @apiUrl, @joinEventFn, @proxy}) ->
     @cache = {}
 
@@ -12,8 +13,18 @@ module.exports = class Hyperplane
       return @cache._auth
 
     hyperplaneToken = @cookieSubject.getValue()[AUTH_COOKIE]
-    return @joinEventFn()
+    joinEventPromise = @joinEventFn()
+
+    # FIXME: should not thow outside a promise
+    unless joinEventPromise?.then?
+      throw new Error 'joinEventFn must return a promise'
+
+    return joinEventPromise
     .then (joinEvent) =>
+      unless _.isPlainObject joinEvent
+        throw new Error 'Invalid joinEvent, must be plain object'
+
+      # TODO: test
       @cache._auth = (if hyperplaneToken
         @proxy "#{@apiUrl}/users",
           method: 'POST'
