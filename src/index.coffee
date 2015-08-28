@@ -4,8 +4,7 @@ _ = require 'lodash'
 AUTH_COOKIE = 'hyperplaneToken'
 
 module.exports = class Hyperplane
-  # TODO: add app
-  constructor: ({@cookieSubject, @apiUrl, @joinEventFn, @proxy}) ->
+  constructor: ({@cookieSubject, @app, @apiUrl, @joinEventFn, @proxy}) ->
     @cache = {}
 
   _auth: =>
@@ -24,7 +23,8 @@ module.exports = class Hyperplane
       unless _.isPlainObject joinEvent
         throw new Error 'Invalid joinEvent, must be plain object'
 
-      # TODO: test
+      _.merge {@app}, joinEvent
+    .then (joinEvent) =>
       @cache._auth = (if hyperplaneToken
         @proxy "#{@apiUrl}/users",
           method: 'POST'
@@ -52,7 +52,7 @@ module.exports = class Hyperplane
 
       return @cache.experiments = @_auth()
       .then (user) =>
-        @proxy "#{@apiUrl}/users/me/experiments",
+        @proxy "#{@apiUrl}/users/me/experiments/#{@app}",
           method: 'GET'
           headers:
             Authorization: "Token #{user.accessToken}"
@@ -64,4 +64,4 @@ module.exports = class Hyperplane
         method: 'POST'
         headers:
           Authorization: "Token #{user.accessToken}"
-        body: opts
+        body: _.merge {@app}, opts
