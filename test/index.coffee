@@ -160,9 +160,8 @@ describe 'emit', ->
     proxy = -> null
 
     hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    try
-      hp.emit 'EVENT'
-    catch err
+    hp.emit 'EVENT'
+    .catch (err) ->
       assert.equal err.message, 'joinEventFn must return a promise'
 
   it 'requires joinEventFn to resolve to a plain object', ->

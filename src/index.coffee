@@ -4,64 +4,71 @@ _ = require 'lodash'
 AUTH_COOKIE = 'hyperplaneToken'
 
 module.exports = class Hyperplane
-  constructor: ({@cookieSubject, @app, @apiUrl, @joinEventFn, @proxy}) ->
-    @cache = {}
+  constructor: ({cookieSubject, @app, @apiUrl, @joinEventFn, @proxy}) ->
+    initialAuthPromise = null
+    @experimentCache = {}
 
-  _auth: =>
-    if @cache._auth
-      return @cache._auth
+    @accessToken = Rx.Observable.defer =>
+      unless initialAuthPromise?
+        joinEventPromise = @joinEventFn()
 
-    hyperplaneToken = @cookieSubject.getValue()[AUTH_COOKIE]
-    joinEventPromise = @joinEventFn()
+        unless joinEventPromise?.then?
+          throw new Error 'joinEventFn must return a promise'
 
-    # FIXME: should not thow outside a promise
-    unless joinEventPromise?.then?
-      throw new Error 'joinEventFn must return a promise'
+        initialAuthPromise = joinEventPromise
+        .then (joinEvent) =>
+          unless _.isPlainObject joinEvent
+            throw new Error 'Invalid joinEvent, must be plain object'
 
-    return joinEventPromise
-    .then (joinEvent) =>
-      unless _.isPlainObject joinEvent
-        throw new Error 'Invalid joinEvent, must be plain object'
+          _.merge {@app}, joinEvent
+        .then (joinEvent) =>
+          cookieAccessToken = cookieSubject.getValue()[AUTH_COOKIE]
 
-      _.merge {@app}, joinEvent
-    .then (joinEvent) =>
-      @cache._auth = (if hyperplaneToken
-        @proxy "#{@apiUrl}/users",
-          method: 'POST'
-          headers:
-            Authorization: "Token #{hyperplaneToken}"
-          body: joinEvent
-        .catch =>
-          @proxy "#{@apiUrl}/users",
-            method: 'POST'
-            body: joinEvent
-      else
-        @proxy "#{@apiUrl}/users",
-          method: 'POST'
-          body: joinEvent
-      ).then (user) =>
-        cookies = {}
-        cookies[AUTH_COOKIE] = user.accessToken
-        @cookieSubject.onNext _.defaults cookies, @cookieSubject.getValue()
-        return user
+          (if cookieAccessToken
+            @proxy "#{@apiUrl}/users",
+              isIdempotent: true
+              method: 'POST'
+              headers:
+                Authorization: "Token #{cookieAccessToken}"
+              body: joinEvent
+            .catch =>
+              @proxy "#{@apiUrl}/users",
+                isIdempotent: true
+                method: 'POST'
+                body: joinEvent
+          else
+            @proxy "#{@apiUrl}/users",
+              isIdempotent: true
+              method: 'POST'
+              body: joinEvent
+          ).then ({accessToken}) -> accessToken
+      return initialAuthPromise
+    .doOnNext (accessToken) ->
+      cookies = {}
+      cookies[AUTH_COOKIE] = accessToken
+      cookieSubject.onNext _.defaults cookies, cookieSubject.getValue()
 
   getExperiments: =>
-    Rx.Observable.defer =>
-      if @cache.experiments
-        return @cache.experiments
-
-      return @cache.experiments = @_auth()
-      .then (user) =>
-        @proxy "#{@apiUrl}/users/me/experiments/#{@app}",
-          method: 'GET'
-          headers:
-            Authorization: "Token #{user.accessToken}"
+    @accessToken
+    .flatMapLatest (accessToken) =>
+      cached = @experimentCache[accessToken]
+      if cached?
+        return cached
+      else
+        @experimentCache[accessToken] =
+          @proxy "#{@apiUrl}/users/me/experiments/#{@app}",
+            isIdempotent: true
+            method: 'GET'
+            headers:
+              Authorization: "Token #{accessToken}"
 
   emit: (event, opts) =>
-    @_auth()
-    .then (user) =>
+    @accessToken
+    .take(1).toPromise()
+    .then (accessToken) =>
       @proxy "#{@apiUrl}/events/#{event}",
+        isIdempotent: true
         method: 'POST'
         headers:
-          Authorization: "Token #{user.accessToken}"
+          Authorization: "Token #{accessToken}"
         body: _.merge {@app}, opts
