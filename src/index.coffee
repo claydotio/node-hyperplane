@@ -28,19 +28,24 @@ module.exports = class Hyperplane
             @proxy "#{@apiUrl}/users",
               isIdempotent: true
               method: 'POST'
+              qs: {accessToken: cookieAccessToken}
               headers:
-                Authorization: "Token #{cookieAccessToken}"
+                'Content-Type': 'text/plain' # Avoid CORS preflight
               body: joinEvent
             .catch =>
               @proxy "#{@apiUrl}/users",
                 isIdempotent: true
                 method: 'POST'
                 body: joinEvent
+                headers:
+                  'Content-Type': 'text/plain' # Avoid CORS preflight
           else
             @proxy "#{@apiUrl}/users",
               isIdempotent: true
               method: 'POST'
               body: joinEvent
+              headers:
+                'Content-Type': 'text/plain' # Avoid CORS preflight
           ).then ({accessToken}) -> accessToken
       return initialAuthPromise
     .doOnNext (accessToken) ->
@@ -59,8 +64,10 @@ module.exports = class Hyperplane
           @proxy "#{@apiUrl}/users/me/experiments/#{@app}",
             isIdempotent: true
             method: 'GET'
+            qs: {accessToken}
             headers:
-              Authorization: "Token #{accessToken}"
+              'Content-Type': 'text/plain' # Avoid CORS preflight
+
 
   emit: (event, opts) =>
     @accessToken
@@ -69,6 +76,7 @@ module.exports = class Hyperplane
       @proxy "#{@apiUrl}/events/#{event}",
         isIdempotent: true
         method: 'POST'
+        qs: {accessToken}
         headers:
-          Authorization: "Token #{accessToken}"
+          'Content-Type': 'text/plain' # Avoid CORS preflight
         body: _.merge {@app}, opts

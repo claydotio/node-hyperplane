@@ -22,7 +22,7 @@ describe 'emit', ->
         when "#{apiUrl}/events/EVENT"
           eventAssert = true
           assert.deepEqual opts.body, {app}
-          assert.deepEqual opts.headers, Authorization: 'Token ACCESS_TOKEN'
+          assert.deepEqual opts.qs, accessToken: 'ACCESS_TOKEN'
           Promise.resolve null
 
     hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
@@ -63,7 +63,7 @@ describe 'emit', ->
       switch path
         when "#{apiUrl}/users"
           assertAuth = true
-          assert.equal opts.headers.Authorization, 'Token ACCESS_TOKEN'
+          assert.equal opts.qs.accessToken, 'ACCESS_TOKEN'
           Promise.resolve {}
         when "#{apiUrl}/events/EVENT"
           Promise.resolve null
@@ -84,7 +84,7 @@ describe 'emit', ->
       switch path
         when "#{apiUrl}/users"
           authCount += 1
-          if opts.headers?.Authorization is 'Token INVALID'
+          if opts.qs?.accessToken is 'INVALID'
             Promise.reject new Error '401'
           else
             Promise.resolve {accessToken: 'VALID'}
