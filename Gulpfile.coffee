@@ -6,7 +6,6 @@ rename = require 'gulp-rename'
 webpack = require 'webpack-stream'
 istanbul = require 'gulp-coffee-istanbul'
 coffeelint = require 'gulp-coffeelint'
-clayLintConfig = require 'clay-coffeescript-style-guide'
 
 TEST_TIMEOUT = 300
 
@@ -40,7 +39,7 @@ gulp.task 'watch:phantom', ->
 
 gulp.task 'lint', ->
   gulp.src paths.coffee
-    .pipe coffeelint(null, clayLintConfig)
+    .pipe coffeelint()
     .pipe coffeelint.reporter()
 
 gulp.task 'test:browser', ['build:test'], (cb) ->
