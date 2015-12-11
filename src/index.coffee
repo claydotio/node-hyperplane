@@ -1,82 +1,103 @@
 Rx = require 'rx-lite'
 _ = require 'lodash'
+Exoid = require 'exoid'
+request = require 'clay-request'
 
 AUTH_COOKIE = 'hyperplaneToken'
 
+class Auth
+  constructor: ({@exoid, cookieSubject, login}) ->
+    initPromise = null
+    @waitValidAuthCookie = Rx.Observable.defer =>
+      if initPromise?
+        return initPromise
+      return initPromise = cookieSubject.take(1).toPromise()
+      .then (currentCookies) =>
+        (if currentCookies[AUTH_COOKIE]?
+          @exoid.getCached 'users.getMe'
+          .then (user) =>
+            if user?
+              return {accessToken: currentCookies[AUTH_COOKIE]}
+            @exoid.call 'users.getMe'
+            .then ->
+              return {accessToken: currentCookies[AUTH_COOKIE]}
+          .catch ->
+            cookieSubject.onNext _.defaults {
+              "#{AUTH_COOKIE}": null
+            }, currentCookies
+            login()
+        else
+          login())
+        .then ({accessToken}) =>
+          cookieSubject.onNext _.defaults {
+            "#{AUTH_COOKIE}": accessToken
+          }, currentCookies
+
+          # TODO: remove, or fix, or explain why this is needed for caching
+          @exoid.stream 'users.getMe'
+          .take(1).toPromise()
+
+  stream: (path, body) =>
+    @waitValidAuthCookie
+    .flatMapLatest =>
+      @exoid.stream path, body
+
+  call: (path, body) =>
+    @waitValidAuthCookie.take(1).toPromise()
+    .then =>
+      @exoid.call path, body
+
 module.exports = class Hyperplane
-  constructor: ({cookieSubject, @app, @apiUrl, @joinEventFn, @proxy}) ->
-    initialAuthPromise = null
-    @experimentCache = {}
+  constructor: ({@app, api, cookieSubject, serverHeaders,
+    cache, experimentKey, @defaults}) ->
+    serverHeaders ?= {}
+    @defaults ?= -> Promise.resolve {}
 
-    @accessToken = Rx.Observable.defer =>
-      unless initialAuthPromise?
-        joinEventPromise = @joinEventFn()
+    accessToken = cookieSubject.map (cookies) ->
+      cookies[AUTH_COOKIE]
 
-        unless joinEventPromise?.then?
-          throw new Error 'joinEventFn must return a promise'
+    proxy = (url, opts) ->
+      accessToken.take(1).toPromise()
+      .then (accessToken) ->
+        proxyHeaders =  _.pick serverHeaders, [
+          'cookie'
+          'user-agent'
+          'accept-language'
+          'x-forwarded-for'
+        ]
+        request url, _.merge {
+          qs: if accessToken? then {accessToken} else {}
+          headers: _.merge {
+            # Avoid CORS preflight
+            'Content-Type': 'text/plain'
+          }, proxyHeaders
+        }, opts
 
-        initialAuthPromise = joinEventPromise
-        .then (joinEvent) =>
-          unless _.isPlainObject joinEvent
-            throw new Error 'Invalid joinEvent, must be plain object'
+    @exoid = new Exoid
+      api: api
+      fetch: proxy
+      cache: cache
 
-          _.merge {@app}, joinEvent
-        .then (joinEvent) =>
-          cookieAccessToken = cookieSubject.getValue()[AUTH_COOKIE]
-
-          (if cookieAccessToken
-            @proxy "#{@apiUrl}/users",
-              isIdempotent: true
-              method: 'POST'
-              qs: {accessToken: cookieAccessToken}
-              headers:
-                'Content-Type': 'text/plain' # Avoid CORS preflight
-              body: joinEvent
-            .catch =>
-              @proxy "#{@apiUrl}/users",
-                isIdempotent: true
-                method: 'POST'
-                body: joinEvent
-                headers:
-                  'Content-Type': 'text/plain' # Avoid CORS preflight
-          else
-            @proxy "#{@apiUrl}/users",
-              isIdempotent: true
-              method: 'POST'
-              body: joinEvent
-              headers:
-                'Content-Type': 'text/plain' # Avoid CORS preflight
-          ).then ({accessToken}) -> accessToken
-      return initialAuthPromise
-    .doOnNext (accessToken) ->
-      cookies = {}
-      cookies[AUTH_COOKIE] = accessToken
-      cookieSubject.onNext _.defaults cookies, cookieSubject.getValue()
-
-  getExperiments: =>
-    @accessToken
-    .flatMapLatest (accessToken) =>
-      cached = @experimentCache[accessToken]
-      if cached?
-        return cached
-      else
-        @experimentCache[accessToken] =
-          @proxy "#{@apiUrl}/users/me/experiments/#{@app}",
-            isIdempotent: true
-            method: 'GET'
-            qs: {accessToken}
-            headers:
-              'Content-Type': 'text/plain' # Avoid CORS preflight
-
+    @auth = new Auth({
+      @exoid
+      cookieSubject
+      login: =>
+        Promise.all [
+          @defaults()
+          experimentKey?.take(1).toPromise() or Promise.resolve undefined
+        ]
+        .then ([defaults, experimentKey]) =>
+          @exoid.call 'auth.login', _.merge {@app, experimentKey}, defaults
+    })
 
   emit: (event, opts) =>
-    @accessToken
-    .take(1).toPromise()
-    .then (accessToken) =>
-      @proxy "#{@apiUrl}/events/#{event}",
-        isIdempotent: true
-        method: 'POST'
-        qs: {accessToken}
-        headers:
-          'Content-Type': 'text/plain' # Avoid CORS preflight
-        body: _.merge {@app}, opts
+    @defaults()
+    .then (defaults) =>
+      body = _.merge _.merge({@app, event}, defaults), opts
+      @auth.call 'events.create', body
+
+  getExperiments: =>
+    @auth.stream 'users.getExperimentsByApp', {@app}
+
+  getCacheStream: =>
+    @exoid.getCacheStream()

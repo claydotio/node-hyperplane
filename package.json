@@ -19,12 +19,14 @@
   "license": "MIT",
   "author": "Zolmeister (https://zolmeister.com/)",
   "dependencies": {
+    "clay-request": "^0.4.4",
     "coffee-script": "^1.9.3",
-    "clay-request": "^0.4.2",
+    "exoid": "^0.1.2",
     "lodash": "^3.10.1",
     "rx-lite": "^2.5.2"
   },
   "devDependencies": {
+    "b-assert": "^0.1.2",
     "clay-coffeescript-style-guide": "^1.1.0",
     "coffee-loader": "^0.7.2",
     "gulp": "^3.9.0",
@@ -40,7 +42,8 @@
     "karma-phantomjs-launcher": "^0.2.0",
     "mocha": "^2.2.5",
     "phantomjs": "^1.9.17",
-    "webpack-stream": "^2.0.0"
+    "webpack-stream": "^2.0.0",
+    "zock": "^0.2.6"
   },
   "directories": {
     "test": "test"

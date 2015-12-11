@@ -1,229 +1,154 @@
-assert = require 'assert'
+b = require 'b-assert'
 Rx = require 'rx-lite'
 zock = require 'zock'
-
 Promise = require 'bluebird'
 
 Hyperplane = require '../src'
 
+API_URL = 'http://hyperplane'
+USER_ID = '9fbb8f59-0521-43e8-813e-029ac960865b'
+ACCESS_TOKEN = 'TOKEN'
+
 # FIXME: cyclomatic complexity
 describe 'emit', ->
   it 'emits events', ->
-    eventAssert = false
-    app = 'testapp'
-    apiUrl = 'http://test'
+    callCnt = 0
     cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          Promise.resolve {accessToken: 'ACCESS_TOKEN'}
-        when "#{apiUrl}/events/EVENT"
-          eventAssert = true
-          assert.deepEqual opts.body, {app}
-          assert.deepEqual opts.qs, accessToken: 'ACCESS_TOKEN'
-          Promise.resolve null
 
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .then ->
-      assert eventAssert
+    zock
+    .base API_URL
+    .exoid 'auth.login'
+    .reply {accessToken: ACCESS_TOKEN}
+    .exoid 'users.getMe'
+    .reply {id: USER_ID}
+    .exoid 'events.create'
+    .reply ({body}, {query}) ->
+      callCnt += 1
+      b body, {app: 'xapp', event: 'EVENT', tags: {x: 'y'}}
+      b query, {accessToken: ACCESS_TOKEN}
+      b cookieSubject.getValue(), {hyperplaneToken: ACCESS_TOKEN}
+      null
+    .withOverrides ->
+      hp = new Hyperplane
+        app: 'xapp'
+        api: API_URL + '/exoid'
+        cookieSubject: cookieSubject
 
-  it 'does not auth twice', ->
-    authCount = 0
-    app = 'testapp'
-    apiUrl = 'http://test'
+      hp.emit 'EVENT', {tags: {x: 'y'}}
+      .then ->
+        hp.emit 'EVENT', {tags: {x: 'y'}}
+      .then ->
+        b callCnt, 2
+
+  it 'emits event with serverHeaders and defaults, with experimentKey auth', ->
     cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          authCount += 1
-          Promise.resolve {}
-        when "#{apiUrl}/events/EVENT"
-          Promise.resolve null
 
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .then ->
-      hp.emit 'EVENT'
-    .then ->
-      assert.equal authCount, 1
+    zock
+    .base API_URL
+    .exoid 'auth.login'
+    .reply ({body}, {query, headers}) ->
+      b body,
+        app: 'xapp'
+        experimentKey: 'abc'
+        fields:
+          clayId: USER_ID
+      b headers['user-agent'], 'Mobile Android'
+      {accessToken: ACCESS_TOKEN}
+    .exoid 'users.getMe'
+    .reply {id: USER_ID}
+    .exoid 'events.create'
+    .reply ({body}, {query, headers}) ->
+      b body,
+        app: 'xapp'
+        event: 'EVENT'
+        tags: {x: 'y'}
+        fields:
+          clayId: USER_ID
+      b headers['user-agent'], 'Mobile Android'
+      b query, {accessToken: ACCESS_TOKEN}
+      null
+    .withOverrides ->
+      hp = new Hyperplane
+        app: 'xapp'
+        api: API_URL + '/exoid'
+        cookieSubject: cookieSubject
+        serverHeaders: {'user-agent': 'Mobile Android'}
+        cache: {}
+        experimentKey: Rx.Observable.just 'abc'
+        defaults: ->
+          Promise.resolve
+            fields:
+              clayId: USER_ID
+
+      hp.emit 'EVENT', {tags: {x: 'y'}}
 
   it 'auth with existing token', ->
-    assertAuth = false
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {hyperplaneToken: 'ACCESS_TOKEN'}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          assertAuth = true
-          assert.equal opts.qs.accessToken, 'ACCESS_TOKEN'
-          Promise.resolve {}
-        when "#{apiUrl}/events/EVENT"
-          Promise.resolve null
+    cookieSubject = new Rx.BehaviorSubject {hyperplaneToken: 'EXISTING'}
 
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .then ->
-      assert assertAuth
+    zock
+    .base API_URL
+    .exoid 'auth.login'
+    .reply ->
+      throw new Error 'Not Suppose to call auth.login'
+    .exoid 'users.getMe'
+    .reply (_, {query}) ->
+      b query, {accessToken: 'EXISTING'}
+      {id: USER_ID}
+    .exoid 'events.create'
+    .reply null
+    .withOverrides ->
+      hp = new Hyperplane
+        app: 'xapp'
+        api: API_URL + '/exoid'
+        cookieSubject: cookieSubject
 
-  it 're-auths when existing token errors', ->
-    authCount = 0
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {hyperplaneToken: 'INVALID'}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          authCount += 1
-          if opts.qs?.accessToken is 'INVALID'
-            Promise.reject new Error '401'
-          else
-            Promise.resolve {accessToken: 'VALID'}
-        when "#{apiUrl}/events/EVENT"
-          Promise.resolve null
-
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .then ->
-      assert.equal authCount, 2
-
-  it 'emits events with custom data', ->
-    eventAssert = false
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          Promise.resolve {}
-        when "#{apiUrl}/events/EVENT"
-          eventAssert = true
-          assert.deepEqual opts.body,
-            app: app
-            tags:
-              x: 'xxx'
-          Promise.resolve null
-
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT', {tags: {x: 'xxx'}}
-    .then ->
-      assert eventAssert
-
-  it 'creates user with data when emitting first event, setting cookie', ->
-    userAssert = false
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve
-        tags:
-          x: 'xxx'
-        fields:
-          y: 'yyy'
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          userAssert = true
-          assert.deepEqual opts.body,
-            app: app
-            tags:
-              x: 'xxx'
-            fields:
-              y: 'yyy'
-          Promise.resolve {accessToken: 'ACCESS_TOKEN'}
-        when "#{apiUrl}/events/EVENT"
-          Promise.resolve null
-
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .then ->
-      assert userAssert
-      assert.equal cookieSubject.getValue().hyperplaneToken, 'ACCESS_TOKEN'
-
-  it 'requires joinEventFn to return a promise', ->
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      null
-    proxy = -> null
-
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .catch (err) ->
-      assert.equal err.message, 'joinEventFn must return a promise'
-
-  it 'requires joinEventFn to resolve to a plain object', ->
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve null
-    proxy = -> null
-
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.emit 'EVENT'
-    .catch (err) ->
-      assert.equal err.message, 'Invalid joinEvent, must be plain object'
+      hp.emit 'EVENT', {tags: {x: 'y'}}
 
 describe 'getExperiments', ->
   it 'gets experiments', ->
-    experimentAssert = false
-    app = 'testapp'
-    apiUrl = 'http://test'
     cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          Promise.resolve {}
-        when "#{apiUrl}/users/me/experiments/#{app}"
-          experimentAssert = true
-          Promise.resolve {
-            test: 'a'
-          }
 
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.getExperiments()
-    .take(1).toPromise()
-    .then (experiments) ->
-      assert.equal experiments.test, 'a'
-      assert experimentAssert
+    zock
+    .base API_URL
+    .exoid 'auth.login'
+    .reply {accessToken: ACCESS_TOKEN}
+    .exoid 'users.getMe'
+    .reply {id: USER_ID}
+    .exoid 'users.getExperimentsByApp'
+    .reply ({body}) ->
+      b body, {app: 'xapp'}
+      {abc: 'xyz'}
+    .withOverrides ->
+      hp = new Hyperplane
+        app: 'xapp'
+        api: API_URL + '/exoid'
+        cookieSubject: cookieSubject
 
-  it 'caches experiments', ->
-    experimentCount = 0
-    app = 'testapp'
-    apiUrl = 'http://test'
-    cookieSubject = new Rx.BehaviorSubject {}
-    joinEventFn = ->
-      Promise.resolve {}
-    proxy = (path, opts) ->
-      switch path
-        when "#{apiUrl}/users"
-          Promise.resolve {}
-        when "#{apiUrl}/users/me/experiments/#{app}"
-          experimentCount += 1
-          Promise.resolve null
-
-    hp = new Hyperplane({cookieSubject, app, apiUrl, joinEventFn, proxy})
-    hp.getExperiments()
-    .take(1).toPromise()
-    .then ->
-      assert.equal experimentCount, 1
-    .then ->
       hp.getExperiments()
       .take(1).toPromise()
-    .then ->
-      assert.equal experimentCount, 1
+      .then (experiments) ->
+        b experiments, {abc: 'xyz'}
+
+describe 'getCacheStream', ->
+  it 'gets exoid cache', ->
+    cookieSubject = new Rx.BehaviorSubject {}
+
+    zock
+    .base API_URL
+    .exoid 'auth.login'
+    .reply {accessToken: ACCESS_TOKEN}
+    .exoid 'users.getMe'
+    .reply {id: USER_ID}
+    .exoid 'events.create'
+    .reply null
+    .withOverrides ->
+      hp = new Hyperplane
+        app: 'xapp'
+        api: API_URL + '/exoid'
+        cookieSubject: cookieSubject
+
+      hp.emit 'EVENT', {tags: {x: 'y'}}
+      .then ->
+        hp.getCacheStream().take(1).toPromise()
+        .then (cache) ->
+          b Object.keys(cache).length > 0
