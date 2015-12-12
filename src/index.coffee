@@ -28,14 +28,10 @@ class Auth
             login()
         else
           login())
-        .then ({accessToken}) =>
+        .then ({accessToken}) ->
           cookieSubject.onNext _.defaults {
             "#{AUTH_COOKIE}": accessToken
           }, currentCookies
-
-          # TODO: remove, or fix, or explain why this is needed for caching
-          @exoid.stream 'users.getMe'
-          .take(1).toPromise()
 
   stream: (path, body) =>
     @waitValidAuthCookie

@@ -21,7 +21,7 @@
   "dependencies": {
     "clay-request": "^0.4.4",
     "coffee-script": "^1.9.3",
-    "exoid": "^0.1.2",
+    "exoid": "^0.1.3",
     "lodash": "^3.10.1",
     "rx-lite": "^2.5.2"
   },
