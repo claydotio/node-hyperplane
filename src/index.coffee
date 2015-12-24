@@ -45,7 +45,7 @@ class Auth
 
 module.exports = class Hyperplane
   constructor: ({@app, api, cookieSubject, serverHeaders,
-    cache, experimentKey, @defaults}) ->
+    cache, @experimentKey, @defaults}) ->
     serverHeaders ?= {}
     @defaults ?= -> Promise.resolve {}
 
@@ -80,7 +80,7 @@ module.exports = class Hyperplane
       login: =>
         Promise.all [
           @defaults()
-          experimentKey?.take(1).toPromise() or Promise.resolve undefined
+          @experimentKey?.take(1).toPromise() or Promise.resolve undefined
         ]
         .then ([defaults, experimentKey]) =>
           @exoid.call 'auth.login', _.merge {@app, experimentKey}, defaults
@@ -93,7 +93,21 @@ module.exports = class Hyperplane
       @auth.call 'events.create', body
 
   getExperiments: =>
-    @auth.stream 'users.getExperimentsByApp', {@app}
+    if @experimentKey?
+      @experimentKey
+      # TODO: ugly - side effect in stream
+      .flatMapLatest (experimentKey) =>
+        @auth.stream 'users.getMe'
+        .take(1).toPromise()
+        .then (user) =>
+          if user.experimentKey isnt experimentKey
+            @auth.call 'users.updateMe', {experimentKey}
+        .then ->
+          experimentKey
+      .flatMapLatest (experimentKey) =>
+        @auth.stream 'users.getExperimentsByApp', {@app, experimentKey}
+    else
+      @auth.stream 'users.getExperimentsByApp', {@app}
 
   getCacheStream: =>
     @exoid.getCacheStream()

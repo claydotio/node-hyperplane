@@ -129,6 +129,45 @@ describe 'getExperiments', ->
       .then (experiments) ->
         b experiments, {abc: 'xyz'}
 
+  it 'gets experiments with experimentKey stream', ->
+    cookieSubject = new Rx.BehaviorSubject {}
+    experimentKey = new Rx.BehaviorSubject 'xxx'
+
+    zock
+    .base API_URL
+    .exoid 'auth.login'
+    .reply {accessToken: ACCESS_TOKEN}
+    .exoid 'users.getMe'
+    .reply {id: USER_ID, experimentKey: 'xxx'}
+    .exoid 'users.updateMe'
+    .reply ({body}) ->
+      b body, {experimentKey: experimentKey.getValue()}
+      {id: USER_ID, experimentKey: body.experimentKey}
+    .exoid 'users.getExperimentsByApp'
+    .reply ({body}) ->
+      b body, {app: 'xapp', experimentKey: experimentKey.getValue()}
+      if experimentKey.getValue() is 'abc'
+        {abc: 'xxx'}
+      else
+        {abc: 'xyz'}
+    .withOverrides ->
+      hp = new Hyperplane
+        app: 'xapp'
+        api: API_URL + '/exoid'
+        cookieSubject: cookieSubject
+        experimentKey: experimentKey
+
+      hp.getExperiments()
+      .take(1).toPromise()
+      .then (experiments) ->
+        b experiments, {abc: 'xyz'}
+        experimentKey.onNext 'abc'
+      .then ->
+        hp.getExperiments()
+        .take(1).toPromise()
+      .then (experiments) ->
+        b experiments, {abc: 'xxx'}
+
 describe 'getCacheStream', ->
   it 'gets exoid cache', ->
     cookieSubject = new Rx.BehaviorSubject {}
